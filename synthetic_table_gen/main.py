@@ -136,38 +136,82 @@ def generate_random_table(table_name: str, n_rows=5, rng=None) -> pd.DataFrame:
     df = pd.DataFrame(rows_data, columns=columns)
     return df
 
-
+    
 def create_display_df(original_df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
     """
-    Merge columns like (value + unit) in a random manner for display.
-
-    :param original_df: DataFrame with separate columns for Value / Unit.
-    :param rng: A numpy Random Generator.
-    :return: A new DataFrame with some columns merged.
+    Dynamically detect all "Value" + "Unit" columns. For every column whose
+    name ends with "Unit", check if there's a corresponding value column with
+    the same prefix. Then decide randomly whether to:
+      - Merge them into the value column (with 50% chance to keep the unit text).
+      - Possibly keep them separate (if you prefer).
+    
+    After merging, drop the "X Unit" column if merged.
     """
+
+    # Copy the original DF so we don't mutate it
     df = original_df.copy()
 
-    def merge_randomly(value_col: str, unit_col: str, new_col: str):
-        if value_col in df.columns and unit_col in df.columns:
-            df[new_col] = df[new_col].astype("object")
-            for i, (val, u) in enumerate(zip(df[value_col], df[unit_col])):
-                if pd.isna(val):
-                    df.loc[i, new_col] = None
-                    continue
-                str_unit = str(u).lower() if not pd.isna(u) else ""
-                if str_unit == "dimensionless":
-                    df.loc[i, new_col] = str(val)
-                else:
-                    # 50% chance to keep the unit
-                    if rng.random() < 0.5 and str_unit:
-                        df.loc[i, new_col] = f"{val} {u}"
-                    else:
-                        df.loc[i, new_col] = str(val)
-            df.drop(columns=[unit_col], inplace=True)
+    # We'll do a pass over columns that end in "Unit".
+    # But since we might drop columns on the fly, let's store the column list first:
+    columns_at_start = list(df.columns)
 
-    merge_randomly("Interfacial Tension", "IT Unit", "Interfacial Tension")
-    merge_randomly("Compression Stress at Break", "CS Unit", "Compression Stress at Break")
-    merge_randomly("Poissons Ratio", "PR Unit", "Poissons Ratio")
+    # Helper function that merges the columns at the cell level
+    def merge_randomly(value_col: str, unit_col: str):
+        """
+        For each row, decide if we keep the unit in that cell:
+          - 50% chance to keep "VALUE UNIT"
+          - 50% chance to keep just "VALUE"
+        If the unit is 'dimensionless', always keep only the value.
+        """
+        for i, (val, u) in enumerate(zip(df[value_col], df[unit_col])):
+            # If 'val' is missing, keep None
+            if pd.isna(val):
+                df.at[i, value_col] = None
+                continue
+
+            # Convert unit to lowercase
+            str_unit = str(u).lower() if not pd.isna(u) else ""
+
+            # If dimensionless, store just the value
+            if str_unit == "dimensionless":
+                df.at[i, value_col] = str(val)
+            else:
+                # 50% chance to keep or omit the unit
+                if rng.random() < 0.25 and str_unit:
+                    df.at[i, value_col] = f"{val} {u}"
+                else:
+                    df.at[i, value_col] = str(val)
+
+    # We'll store pairs in a list to avoid messing with column order
+    pairs_to_merge = []
+
+    # Loop over columns, find any that end with 'Unit'
+    for col in columns_at_start:
+        # Check if col name ends with 'Unit' exactly
+        if col.lower().endswith("unit"):
+            # We'll guess the base name is everything up to the space, 
+            # or just remove " Unit" suffix programmatically
+            # For example, "IT Unit" => base is "IT"
+            # "Poissons Ratio Unit" => base is "Poissons Ratio"
+            # You can parse more sophisticatedly if desired
+            base_name = col.rsplit("Unit", 1)[0].rstrip()  # remove 'Unit' and trailing space
+
+            # If the base_name column exists, we can merge
+            if base_name in df.columns:
+                pairs_to_merge.append((base_name, col))
+            else:
+                # Possibly do something else if we found a 'Unit' column but no matching base
+                # e.g. print a warning or rename it
+                pass
+
+    # Now do the merges
+    for (value_col, unit_col) in pairs_to_merge:
+        # Here you can decide if you *always* want to merge or do so only randomly.
+        # Example: we always merge. If you want random "keep separate", wrap in `if rng.random() < 0.8:`
+        merge_randomly(value_col, unit_col)
+
+        # After merging, we drop the unit column
+        df.drop(columns=[unit_col], inplace=True)
 
     return df
 
@@ -180,24 +224,34 @@ def dataframe_to_jsonified_labels(df: pd.DataFrame):
     :param df: The DataFrame to convert.
     :return: A list of dictionaries (one per row).
     """
-    rename_map = {
-        "IT Unit": "interfacial_tension_unit",
-        "CS Unit": "compression_stress_at_break_unit",
-        "PR Unit": "poissons_ratio_unit",
-    }
+    json_rows = []
+
+    # Build a dynamic rename_map for any column ending with "Unit"
+    rename_map = {}
+    for col in df.columns:
+        if col.endswith("Unit"):
+            # Convert "Poissons Ratio Unit" => "poissons_ratio_unit"
+            new_key = col.lower().replace(" ", "_")
+            rename_map[col] = new_key
+
+    # Make a copy so we can rename
     df_renamed = df.rename(columns=rename_map, errors="ignore")
 
-    json_rows = []
     for i, row in df_renamed.iterrows():
         row_dict = {"sample_id": i + 1}
         for col in df_renamed.columns:
             val = row[col]
             if pd.isna(val):
                 continue
+            # For the JSON key, we do the usual conversion
+            # e.g. "Interfacial Tension" => "interfacial_tension"
+            # or we can keep rename_map logic if you prefer
             key = col.lower().replace(" ", "_")
             row_dict[key] = val
         json_rows.append(row_dict)
+
     return json_rows
+
 
 
 def generate_table_with_json_labels(table_name, n_rows=5, rng=None):
