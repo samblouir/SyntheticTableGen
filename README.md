@@ -1,4 +1,6 @@
-# Composite Synthesis Package
+# Synthetic Table Gen
+
+## Composite Synthesis Package
 
 **Authors**: Sam Blouir and Defne Circi
 
@@ -40,7 +42,7 @@ composite materials. This package includes:
 ### Standard Local Install
 
 ```bash
-pip install git+https://github.com/samblouir/synthetic_table_gen.git
+pip install git+https://github.com/samblouir/synthetic_table_gen
 ```
 
 ### Local (Editable) Install
@@ -89,6 +91,7 @@ synthetic_table_gen/
 ├── utils.py
 ├── EXAMPLE.md
 └── README.md
+example.py
 ```
 
 ---
