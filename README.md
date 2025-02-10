@@ -84,7 +84,6 @@ synthetic_table_gen/
 ├── __init__.py
 ├── data_lists.py
 ├── generators.py
-├── loader.py
 ├── main.py
 ├── schemas.py
 ├── synthetic_labels.py
@@ -98,10 +97,7 @@ example.py
 
 ## Contributing
 
-1. **Fork** this repository
-2. **Create** a feature branch
-3. **Commit** your changes
-4. **Open** a pull request
+Please open an issue, send us a message, or send a pull request!
 
 ---
 
