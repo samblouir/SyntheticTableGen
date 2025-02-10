@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+synthetic_table_gen/__init__.py
+synthetic_table_gen/data_lists.py
+synthetic_table_gen/generators.py
+synthetic_table_gen/main.py
+synthetic_table_gen/schemas.py
+synthetic_table_gen/synthetic_labels.py
+synthetic_table_gen/utils.py
+synthetic_table_gen.egg-info/PKG-INFO
+synthetic_table_gen.egg-info/SOURCES.txt
+synthetic_table_gen.egg-info/dependency_links.txt
+synthetic_table_gen.egg-info/requires.txt
+synthetic_table_gen.egg-info/top_level.txt

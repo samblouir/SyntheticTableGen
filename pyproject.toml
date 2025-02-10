@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synthetic_table_gen"
+version = "0.1.0"
+description = "A Python package for generating synthetic composite material data."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+  { name = "Sam Blouir", email = "sblouir@gmu.com" },
+  { name = "Defne Circi", email = "defne.circi@duke.edu" }
+]
+keywords = ["composite", "materials", "synthetic data"]
+requires-python = ">=3.7"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT",
+  "Operating System :: OS Independent"
+]
+
+dependencies = [
+    "numpy >=1.23.5, <=1.26.4",
+
+]
+[tool.setuptools]
+packages = ["synthetic_table_gen"]
+
