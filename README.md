@@ -1,5 +1,7 @@
 # Composite Synthesis Package
 
+**Authors**: Sam Blouir and Defne Circi
+
 A Python package for generating **synthetic data tables** related to 
 composite materials. This package includes:
 
@@ -35,6 +37,12 @@ composite materials. This package includes:
 
 ## Installation
 
+### Standard Local Install
+
+```bash
+pip install git+https://github.com/samblouir/synthetic_table_gen.git
+```
+
 ### Local (Editable) Install
 
 ```bash
@@ -45,14 +53,6 @@ pip install -e .
 
 This installs the package in “editable” mode so changes to the code 
 immediately reflect in the installed package.
-
-### Standard Local Install
-
-```bash
-git clone https://github.com/samblouir/synthetic_table_gen.git
-cd synthetic_table_gen
-pip install .
-```
 
 ---
 
@@ -75,5 +75,34 @@ You can also run:
 python -m synthetic_table_gen.main
 ```
 
-to execute the built-in `main()` function demonstration.
+## Project Structure
 
+```
+synthetic_table_gen/
+├── __init__.py
+├── data_lists.py
+├── generators.py
+├── loader.py
+├── main.py
+├── schemas.py
+├── synthetic_labels.py
+├── utils.py
+├── EXAMPLE.md
+└── README.md
+```
+
+---
+
+## Contributing
+
+1. **Fork** this repository
+2. **Create** a feature branch
+3. **Commit** your changes
+4. **Open** a pull request
+
+---
+
+## License
+
+Apache 2.0
+Cite our paper!
