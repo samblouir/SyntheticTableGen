@@ -1,18 +1,18 @@
-# synthetic_labels.py
+# synthetic_table_gen/synthetic_labels.py
 # -----------------------------------------------------------------------------
 # A helper module providing a function to generate a synthetic table, 
 # then print a combined or "merged" table plus separate JSON. 
+#
+# Demonstrates usage of 'generate_random_table' from main.py with 
+# some optional merging of value+unit columns for display, then 
+# printing separate JSON output. 
 # -----------------------------------------------------------------------------
 
-"""
-Demonstrates usage of 'generate_random_table' from main.py with 
-some optional merging of value+unit columns for display, then 
-printing separate JSON output. 
-"""
 
 import json
 import pandas as pd
 from synthetic_table_gen.main import generate_random_table
+
 
 def _map_column_to_json_key(col_name: str) -> str:
     """
@@ -156,4 +156,3 @@ if __name__ == "__main__":
         n_rows=3,
         rng_seed=42
     )
-

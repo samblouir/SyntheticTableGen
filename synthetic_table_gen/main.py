@@ -2,55 +2,241 @@
 # -----------------------------------------------------------------------------
 # Demonstrates generating tables via schema definitions, optionally merging
 # columns for display, randomizing text formatting, and outputting JSON.
-#
-# Provides functions that:
-#  1) Generate synthetic tables from a given schema,
-#  2) Merge value+unit columns (optionally),
-#  3) Randomly apply different alignments, cases, or delimiters,
-#  4) Convert final DataFrame to JSON.
+# Now also supporting dict-based columns with "table_header" & "json_key".
 # -----------------------------------------------------------------------------
 
 
 import pandas as pd
 import numpy as np
 import json
+from typing import Union
 
 from synthetic_table_gen.schemas import TABLE_SCHEMAS, ensure_schema_title
 
 
 def random_format_options(rng: np.random.Generator):
-    """
-    Return a random (alignment, text_case, delimiter).
-
-    :param rng: A numpy Random Generator instance.
-    :return: A tuple (alignment, text_case, delimiter).
-    """
     align_choices = ["left", "right", "center"]
     case_choices = ["lower", "normal", "upper"]
     delim_choices = ["comma", "tab", "space"]
-
     alignment = rng.choice(align_choices)
     text_case = rng.choice(case_choices)
     delimiter = rng.choice(delim_choices)
     return alignment, text_case, delimiter
 
 
-def format_table_display(df: pd.DataFrame, alignment="left",
-                         text_case="normal", delimiter="space") -> str:
+def _get_column_header(column_def: Union[str, dict]) -> str:
     """
-    Convert a DataFrame to a formatted string. Adjust alignment, 
-    text case, and delimiter for demonstration variety.
+    If column_def is a string, return it.
+    If column_def is a dict with `table_header`, return that.
+    """
+    if isinstance(column_def, dict):
+        return column_def["table_header"]
+    return column_def
 
-    :param df: The DataFrame to format.
-    :param alignment: 'left', 'right', or 'center' alignment.
-    :param text_case: 'lower', 'normal', or 'upper'.
-    :param delimiter: 'comma', 'tab', or 'space'.
-    :return: A single string containing the formatted table.
+
+def _get_json_key(column_def: Union[str, dict]) -> str:
     """
+    Return the JSON key for this column. 
+    If it's a dict with 'json_key', return that; 
+    else if it's a dict with 'table_header', transform it 
+    else transform the string.
+    """
+    if isinstance(column_def, dict):
+        if "json_key" in column_def:
+            return column_def["json_key"]
+        else:
+            # fallback to table_header transformed
+            raw = column_def["table_header"]
+    else:
+        raw = column_def
+    # transform raw -> snake_case
+    key = raw.lower()
+    for ch in ["(", ")", "[", "]", "%", ",", "/", "-", "+"]:
+        key = key.replace(ch, "")
+    key = key.strip().replace(" ", "_")
+    return key
+
+
+def generate_random_table(table_name: str, n_rows=5, rng=None) -> pd.DataFrame:
+    """
+    Build a DF from the table schema, which now can have either strings or dicts
+    for columns.
+    """
+    if table_name not in TABLE_SCHEMAS:
+        raise ValueError(f"Unknown table_name: {table_name}")
+
+    if rng is None:
+        rng = np.random.default_rng()
+
+    schema = TABLE_SCHEMAS[table_name]
+    generator_func = schema["generator_func"]
+    columns_def = schema["columns"]
+
+    # We'll build two parallel lists:
+    # 1) table_headers (the displayed column names)
+    # 2) We'll store the rest for reference to build the final DF
+    table_headers = [_get_column_header(c) for c in columns_def]
+
+    rows_data = []
+    for _ in range(n_rows):
+        row = generator_func(rng)
+        # ensure length
+        if len(row) < len(columns_def):
+            row += [None]*(len(columns_def)-len(row))
+        else:
+            row = row[:len(columns_def)]
+        rows_data.append(row)
+
+    df = pd.DataFrame(rows_data, columns=table_headers)
+    return df
+
+
+def create_display_df(original_df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
+    """
+    Merge 'Value' + 'Unit' columns if present, randomly. 
+    This is optional. 
+    """
+    df = original_df.copy()
+    columns_at_start = list(df.columns)
+
+    def merge_randomly(value_col: str, unit_col: str):
+        for i, (val, u) in enumerate(zip(df[value_col], df[unit_col])):
+            if pd.isna(val):
+                df.at[i, value_col] = None
+                continue
+            str_unit = str(u).lower() if not pd.isna(u) else ""
+            if str_unit == "dimensionless":
+                df.at[i, value_col] = str(val)
+            else:
+                if rng.random() < 0.25 and str_unit:
+                    df.at[i, value_col] = f"{val} {u}"
+                else:
+                    df.at[i, value_col] = str(val)
+
+    pairs_to_merge = []
+    for col in columns_at_start:
+        if col.lower().endswith("unit"):
+            base_name = col.rsplit("Unit", 1)[0].rstrip()
+            if base_name in df.columns:
+                pairs_to_merge.append((base_name, col))
+
+    for (value_col, unit_col) in pairs_to_merge:
+        merge_randomly(value_col, unit_col)
+        df.drop(columns=[unit_col], inplace=True)
+
+    return df
+
+
+def dataframe_to_jsonified_labels(table_name: str, df: pd.DataFrame):
+    """
+    Convert DataFrame rows to JSON dictionaries, 
+    plus inject any schema['_metadata'] into each row as well.
+    """
+    schema = TABLE_SCHEMAS[table_name]
+    columns_def = schema["columns"]
+
+    # Convert columns to the final JSON keys
+    def get_table_header(col_def: Union[str, dict]) -> str:
+        if isinstance(col_def, dict):
+            return col_def["table_header"]
+        return col_def
+
+    def get_json_key(col_def: Union[str, dict]) -> str:
+        if isinstance(col_def, dict) and "json_key" in col_def:
+            return col_def["json_key"]
+        if isinstance(col_def, dict):
+            raw = col_def["table_header"]
+        else:
+            raw = col_def
+        key = raw.lower()
+        for ch in ["(", ")", "[", "]", "%", ",", "/", "-", "+"]:
+            key = key.replace(ch, "")
+        key = key.strip().replace(" ", "_")
+        return key
+
+    json_keys = []
+    table_headers = []
+    for cdef in columns_def:
+        table_headers.append(get_table_header(cdef))
+        json_keys.append(get_json_key(cdef))
+
+    # Now let's build the JSON rows
+    out_rows = []
+    # Check if there's extra metadata
+    meta = schema.get("_metadata", {})
+
+    for i, row in df.iterrows():
+        row_dict = {"sample_id": i + 1}
+        # Insert the metadata here, so each row gets it
+        # e.g. "base_material": "Nylon 6"
+        for k, v in meta.items():
+            row_dict[k] = v
+
+        for (header, jkey) in zip(table_headers, json_keys):
+            if header in df.columns:
+                val = row[header]
+                if pd.isna(val):
+                    continue
+                row_dict[jkey] = val
+        out_rows.append(row_dict)
+
+    return out_rows
+
+
+def generate_table_with_json_labels(table_name: str, n_rows=5, rng=None):
+    if rng is None:
+        rng = np.random.default_rng()
+
+    ensure_schema_title(table_name, rng) 
+    schema = TABLE_SCHEMAS[table_name]
+    title_str = schema["title"]
+
+    # ... create the DataFrame
+    # For demonstration, let's do a minimal version:
+
+    # Actually call your row-generator function
+    generator_func = schema["generator_func"]
+    columns_def = schema["columns"]
+    
+    # Build table headers
+    def get_table_header(c):
+        if isinstance(c, dict):
+            return c["table_header"]
+        return c
+
+    table_headers = [get_table_header(c) for c in columns_def]
+
+    rows = []
+    for _ in range(n_rows):
+        r = generator_func(rng)
+        # ensure length
+        if len(r) < len(columns_def):
+            r += [None]*(len(columns_def)-len(r))
+        rows.append(r)
+
+    df = pd.DataFrame(rows, columns=table_headers)
+
+    # JSON
+    json_rows = dataframe_to_jsonified_labels(table_name, df)
+
+    # Minimal text table
+    table_str = df.to_string(index=False)
+    
+    # Combine it all
+    lines = []
+    lines.append(title_str)
+    lines.append(table_str)
+    lines.append("\n---\n### JSON Output\n")
+    lines.append(json.dumps(json_rows, indent=4))
+    return "\n".join(lines)
+
+
+
+
+def _format_table(df: pd.DataFrame, alignment, text_case, delimiter) -> str:
     rows_str = df.astype(str).values.tolist()
     columns_str = list(df.columns.astype(str))
 
-    # Determine column widths
     col_widths = []
     for col_idx in range(len(columns_str)):
         items_in_col = [columns_str[col_idx]] + [row[col_idx] for row in rows_str]
@@ -73,13 +259,11 @@ def format_table_display(df: pd.DataFrame, alignment="left",
     else:
         delim_char = " "
 
-    # Header line
     header_cells = []
     for i, col_name in enumerate(columns_str):
         header_cells.append(align_text(col_name, col_widths[i], alignment))
     header_line = delim_char.join(header_cells)
 
-    # Row lines
     row_lines = []
     for row_vals in rows_str:
         line_cells = []
@@ -102,200 +286,7 @@ def format_table_display(df: pd.DataFrame, alignment="left",
     return "\n".join(output_lines)
 
 
-def generate_random_table(table_name: str, n_rows=5, rng=None) -> pd.DataFrame:
-    """
-    Build a synthetic DataFrame for 'table_name' using the generator_func 
-    from TABLE_SCHEMAS.
-
-    :param table_name: Key in TABLE_SCHEMAS.
-    :param n_rows: Number of rows to generate.
-    :param rng: Optional numpy Random Generator.
-    :return: A DataFrame containing the random rows.
-    :raises ValueError: If table_name not recognized.
-    """
-    if table_name not in TABLE_SCHEMAS:
-        raise ValueError(f"Unknown table_name: {table_name}")
-
-    if rng is None:
-        rng = np.random.default_rng()
-
-    schema = TABLE_SCHEMAS[table_name]
-    generator_func = schema["generator_func"]
-    columns = schema["columns"]
-
-    rows_data = []
-    for _ in range(n_rows):
-        row = generator_func(rng)
-        # Adjust length of row if needed
-        if len(row) < len(columns):
-            row += [None]*(len(columns)-len(row))
-        else:
-            row = row[:len(columns)]
-        rows_data.append(row)
-
-    df = pd.DataFrame(rows_data, columns=columns)
-    return df
-
-    
-def create_display_df(original_df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
-    """
-    Dynamically detect all "Value" + "Unit" columns. For every column whose
-    name ends with "Unit", check if there's a corresponding value column with
-    the same prefix. Then decide randomly whether to:
-      - Merge them into the value column (with 50% chance to keep the unit text).
-      - Possibly keep them separate (if you prefer).
-    
-    After merging, drop the "X Unit" column if merged.
-    """
-
-    # Copy the original DF so we don't mutate it
-    df = original_df.copy()
-
-    # We'll do a pass over columns that end in "Unit".
-    # But since we might drop columns on the fly, let's store the column list first:
-    columns_at_start = list(df.columns)
-
-    # Helper function that merges the columns at the cell level
-    def merge_randomly(value_col: str, unit_col: str):
-        """
-        For each row, decide if we keep the unit in that cell:
-          - 50% chance to keep "VALUE UNIT"
-          - 50% chance to keep just "VALUE"
-        If the unit is 'dimensionless', always keep only the value.
-        """
-        for i, (val, u) in enumerate(zip(df[value_col], df[unit_col])):
-            # If 'val' is missing, keep None
-            if pd.isna(val):
-                df.at[i, value_col] = None
-                continue
-
-            # Convert unit to lowercase
-            str_unit = str(u).lower() if not pd.isna(u) else ""
-
-            # If dimensionless, store just the value
-            if str_unit == "dimensionless":
-                df.at[i, value_col] = str(val)
-            else:
-                # 50% chance to keep or omit the unit
-                if rng.random() < 0.25 and str_unit:
-                    df.at[i, value_col] = f"{val} {u}"
-                else:
-                    df.at[i, value_col] = str(val)
-
-    # We'll store pairs in a list to avoid messing with column order
-    pairs_to_merge = []
-
-    # Loop over columns, find any that end with 'Unit'
-    for col in columns_at_start:
-        # Check if col name ends with 'Unit' exactly
-        if col.lower().endswith("unit"):
-            # We'll guess the base name is everything up to the space, 
-            # or just remove " Unit" suffix programmatically
-            # For example, "IT Unit" => base is "IT"
-            # "Poissons Ratio Unit" => base is "Poissons Ratio"
-            # You can parse more sophisticatedly if desired
-            base_name = col.rsplit("Unit", 1)[0].rstrip()  # remove 'Unit' and trailing space
-
-            # If the base_name column exists, we can merge
-            if base_name in df.columns:
-                pairs_to_merge.append((base_name, col))
-            else:
-                # Possibly do something else if we found a 'Unit' column but no matching base
-                # e.g. print a warning or rename it
-                pass
-
-    # Now do the merges
-    for (value_col, unit_col) in pairs_to_merge:
-        # Here you can decide if you *always* want to merge or do so only randomly.
-        # Example: we always merge. If you want random "keep separate", wrap in `if rng.random() < 0.8:`
-        merge_randomly(value_col, unit_col)
-
-        # After merging, we drop the unit column
-        df.drop(columns=[unit_col], inplace=True)
-
-    return df
-
-
-def dataframe_to_jsonified_labels(df: pd.DataFrame):
-    """
-    Convert DataFrame rows to JSON dictionaries, 
-    renaming leftover 'X Unit' columns if they exist.
-
-    :param df: The DataFrame to convert.
-    :return: A list of dictionaries (one per row).
-    """
-    json_rows = []
-
-    # Build a dynamic rename_map for any column ending with "Unit"
-    rename_map = {}
-    for col in df.columns:
-        if col.endswith("Unit"):
-            # Convert "Poissons Ratio Unit" => "poissons_ratio_unit"
-            new_key = col.lower().replace(" ", "_")
-            rename_map[col] = new_key
-
-    # Make a copy so we can rename
-    df_renamed = df.rename(columns=rename_map, errors="ignore")
-
-    for i, row in df_renamed.iterrows():
-        row_dict = {"sample_id": i + 1}
-        for col in df_renamed.columns:
-            val = row[col]
-            if pd.isna(val):
-                continue
-            # For the JSON key, we do the usual conversion
-            # e.g. "Interfacial Tension" => "interfacial_tension"
-            # or we can keep rename_map logic if you prefer
-            key = col.lower().replace(" ", "_")
-            row_dict[key] = val
-        json_rows.append(row_dict)
-
-    return json_rows
-
-
-
-def generate_table_with_json_labels(table_name, n_rows=5, rng=None):
-    """
-    1) Ensure the schema has a 'title',
-    2) Generate data,
-    3) Merge columns,
-    4) Randomly format the display,
-    5) Convert to JSON.
-
-    :param table_name: The schema key name.
-    :param n_rows: Number of rows to generate.
-    :param rng: Optional numpy Random Generator.
-    :return: A string containing the table and JSON.
-    """
-    if rng is None:
-        rng = np.random.default_rng()
-
-    ensure_schema_title(table_name, rng)
-    schema = TABLE_SCHEMAS[table_name]
-    title_str = schema["title"]
-
-    original_df = generate_random_table(table_name, n_rows, rng)
-    display_df = create_display_df(original_df, rng)
-    alignment, text_case, delim = random_format_options(rng)
-    table_str = format_table_display(display_df, alignment=alignment, 
-                                     text_case=text_case, delimiter=delim)
-
-    out_lines = []
-    out_lines.append(title_str)
-    out_lines.append(table_str)
-    out_lines.append("\n---\n### JSON Output\n")
-
-    json_rows = dataframe_to_jsonified_labels(original_df)
-    out_lines.append(json.dumps(json_rows, indent=4))
-
-    return "\n".join(out_lines)
-
-
 def main():
-    """
-    An example script that prints two different tables (Weibull Tio2 and 
-    composite_fixed_props) with random formatting, plus JSON output.
-    """
     rng = np.random.default_rng(seed=42)
 
     result1 = generate_table_with_json_labels("weibull_epoxy_tio2", n_rows=4, rng=rng)
@@ -309,4 +300,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

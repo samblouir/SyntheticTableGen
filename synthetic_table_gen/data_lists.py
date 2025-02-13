@@ -10,15 +10,8 @@
 # synonyms, units, and typical numeric ranges, along with helper functions
 # to retrieve canonical property data.
 # -----------------------------------------------------------------------------
-# 1) Lists of FILLERS, MATRICES, PROPERTIES, UNITS
-# 2) Synonyms for each
-# 3) Dictionaries mapping synonyms -> canonical forms, property -> unit lists,
-#    property -> numeric ranges, etc.
-# 4) Helper functions for property name lookups
-# -----------------------------------------------------------------------------
 
 # ============== FILLERS ==============
-# Declare the large list of fillers, plus synonyms, then merge them.
 FILLERS = [
     "(3-Chloropropyl)(ethoxy)dimethylsilane",
     "9-Anthracenemethanol",
@@ -1131,6 +1124,8 @@ def get_property_range(canonical_prop_name: str):
 # Example code (run python data_lists.py)
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
+    import pprint
+
     test_props = ["Tensile Modulus", "Breaking Stress", "Tg", "Puncture Voltage", "Weibull exponent"]
     for p in test_props:
         canonical = get_canonical_property_name(p)
@@ -1142,4 +1137,3 @@ if __name__ == "__main__":
         print(f" -> Preferred Units: {units if units else 'Any from UNITS list'}")
         print(f" -> Typical Range: {val_range}")
         print("-" * 50)
-
